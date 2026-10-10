@@ -1,0 +1,97 @@
+device=cuda epochs=30 batch_size=16
+  ep1 step 0/210 loss 2.5665 (15s)
+  ep1 step 20/210 loss 2.0602 (25s)
+  ep1 step 40/210 loss 1.8030 (35s)
+  ep1 step 60/210 loss 1.9240 (43s)
+  ep1 step 80/210 loss 1.7011 (52s)
+  ep1 step 100/210 loss 1.8674 (60s)
+  ep1 step 120/210 loss 1.4508 (68s)
+  ep1 step 140/210 loss 1.3239 (77s)
+  ep1 step 160/210 loss 1.3292 (85s)
+  ep1 step 180/210 loss 1.1839 (93s)
+  ep1 step 200/210 loss 1.5081 (102s)
+epoch 1/30: train_loss 1.6323 val_loss 0.8911 val_IoU@0.5 0.1383 best-thr IoU 0.1956 (thr 0.3) val_F1 0.3714 (132s)
+  saved models\unet_crop.pt (val IoU 0.1956 @ thr 0.3)
+  ep2 step 0/210 loss 1.5635 (1s)
+  ep2 step 20/210 loss 1.3679 (10s)
+  ep2 step 40/210 loss 1.4209 (19s)
+  ep2 step 60/210 loss 0.9635 (29s)
+  ep2 step 80/210 loss 1.0163 (38s)
+  ep2 step 100/210 loss 1.4683 (48s)
+  ep2 step 120/210 loss 1.0011 (57s)
+  ep2 step 140/210 loss 1.1167 (66s)
+  ep2 step 160/210 loss 0.9343 (76s)
+  ep2 step 180/210 loss 0.8429 (85s)
+  ep2 step 200/210 loss 1.6844 (94s)
+epoch 2/30: train_loss 1.1964 val_loss 0.8677 val_IoU@0.5 0.1695 best-thr IoU 0.1926 (thr 0.2) val_F1 0.6044 (104s)
+  ep3 step 0/210 loss 1.1640 (1s)
+  ep3 step 20/210 loss 1.1010 (11s)
+  ep3 step 40/210 loss 1.0270 (20s)
+  ep3 step 60/210 loss 1.6011 (30s)
+  ep3 step 80/210 loss 1.2069 (40s)
+  ep3 step 100/210 loss 1.2871 (50s)
+  ep3 step 120/210 loss 1.3589 (60s)
+  ep3 step 140/210 loss 1.6980 (70s)
+  ep3 step 160/210 loss 1.3522 (80s)
+  ep3 step 180/210 loss 0.7739 (90s)
+  ep3 step 200/210 loss 1.3786 (99s)
+epoch 3/30: train_loss 1.0712 val_loss 0.6568 val_IoU@0.5 0.3163 best-thr IoU 0.3498 (thr 0.1) val_F1 0.5974 (111s)
+  saved models\unet_crop.pt (val IoU 0.3498 @ thr 0.1)
+  ep4 step 0/210 loss 1.7401 (1s)
+  ep4 step 20/210 loss 0.7719 (10s)
+  ep4 step 40/210 loss 1.0390 (20s)
+  ep4 step 60/210 loss 1.0585 (30s)
+  ep4 step 80/210 loss 0.4874 (39s)
+  ep4 step 100/210 loss 1.3437 (49s)
+  ep4 step 120/210 loss 1.2592 (58s)
+  ep4 step 140/210 loss 0.9854 (67s)
+  ep4 step 160/210 loss 1.3385 (77s)
+  ep4 step 180/210 loss 1.0701 (86s)
+  ep4 step 200/210 loss 0.7841 (96s)
+epoch 4/30: train_loss 1.0268 val_loss 0.6605 val_IoU@0.5 0.2887 best-thr IoU 0.3197 (thr 0.2) val_F1 0.6154 (108s)
+  ep5 step 0/210 loss 1.1669 (1s)
+  ep5 step 20/210 loss 0.5816 (10s)
+  ep5 step 40/210 loss 1.3269 (20s)
+Traceback (most recent call last):
+  File "C:\Users\waseefff\OneDrive\Desktop\Thursday\doc-forgery\src\train_unet.py", line 190, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\waseefff\OneDrive\Desktop\Thursday\doc-forgery\src\train_unet.py", line 153, in main
+    for i, (x, m, y, _) in enumerate(tl):
+                           ~~~~~~~~~^^^^
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\dataloader.py", line 741, in __next__
+    data = self._next_data()
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\dataloader.py", line 1548, in _next_data
+    return self._process_data(data, worker_id)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\dataloader.py", line 1586, in _process_data
+    data.reraise()
+    ~~~~~~~~~~~~^^
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_utils.py", line 785, in reraise
+    raise exception
+RuntimeError: Caught RuntimeError in DataLoader worker process 2.
+Original Traceback (most recent call last):
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\_utils\worker.py", line 358, in _worker_loop
+    data = fetcher.fetch(index)  # type: ignore[possibly-undefined]
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\_utils\fetch.py", line 57, in fetch
+    return self.collate_fn(data)
+           ~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\_utils\collate.py", line 401, in default_collate
+    return collate(batch, collate_fn_map=default_collate_fn_map)
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\_utils\collate.py", line 215, in collate
+    collate(samples, collate_fn_map=collate_fn_map)
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\_utils\collate.py", line 155, in collate
+    return collate_fn_map[elem_type](batch, collate_fn_map=collate_fn_map)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\data\_utils\collate.py", line 273, in collate_tensor_fn
+    storage = elem._typed_storage()._new_shared(numel, device=elem.device)
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\storage.py", line 1210, in _new_shared
+    untyped_storage = torch.UntypedStorage._new_shared(
+        size * self._element_size(), device=device
+    )
+  File "C:\Users\waseefff\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\storage.py", line 412, in _new_shared
+    return cls._new_using_filename_cpu(size)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+RuntimeError: Couldn't open shared file mapping: <torch_23556_2581328898_1173>, error code: <1455>
+

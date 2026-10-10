@@ -1,0 +1,13 @@
+{
+  "model": "unet_crop.pt",
+  "threshold": 0.1625,
+  "val_f1": 0.7347931873479319,
+  "per_doc_type": {
+    "aadhaar": 0.4325,
+    "pan": 0.16375,
+    "marksheet": 0.4625
+  },
+  "max_fpr": 0.1,
+  "w_model": 0.7,
+  "w_ocr": 0.3
+}
