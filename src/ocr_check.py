@@ -1,6 +1,7 @@
 """OCR-based consistency checks for Aadhaar / PAN / marksheet (rules that pixel forensics cannot express)."""
 from __future__ import annotations
 
+import collections
 import datetime
 import difflib
 import re
@@ -105,7 +106,17 @@ def _has_qr(img_bgr: np.ndarray) -> bool:
                 return True
     except cv2.error:
         pass
-    # fallback: dense bi-level block (black and white, almost no mid-grey) = QR-like
+    # fallback 1: a roughly square block of dense high-frequency texture (dense secure QR codes defeat the detectors)
+    try:
+        if cv2.QRCodeDetectorAruco().detect(gray)[0]:
+            return True
+    except cv2.error:
+        pass
+    edges = (np.abs(cv2.Laplacian(gray, cv2.CV_32F)) > 60).astype(np.float32)
+    n, _, st, _ = cv2.connectedComponentsWithStats((cv2.blur(edges, (25, 25)) > 0.25).astype(np.uint8))
+    if any(w > 0.1 * gray.shape[1] and h > 0.1 * gray.shape[1] and 0.8 < w / h < 1.25 for _, _, w, h, _ in st[1:n]):
+        return True
+    # fallback 2: dense bi-level block (black and white, almost no mid-grey) = QR-like
     h, w = gray.shape
     win, hits = max(32, min(h, w) // 8), 0
     for y in range(0, h - win, win // 2):
@@ -119,11 +130,14 @@ def _has_qr(img_bgr: np.ndarray) -> bool:
 # ---------------------------------------------------------------- per-document rules
 def _check_aadhaar(boxes, text, img_bgr, flags):
     num = None
-    cands = [t for b in boxes for t in re.findall(r"(?<!\d)\d{4}\s?\d{4}\s?\d{4}(?!\d)", b["text"])]
+    # not the tail of a 16-digit VID ("9154 2551 2829 5111"), which would otherwise match as a 12-digit number
+    pat = r"(?<!\d)(?<!\d{4}\s)\d{4}\s?\d{4}\s?\d{4}(?!\s?\d)"
+    cands = [t for b in boxes for t in re.findall(pat, b["text"])]
     for row in _rows(boxes):  # number split over several boxes
-        cands += re.findall(r"(?<!\d)\d{4}\s?\d{4}\s?\d{4}(?!\d)", " ".join(b["text"] for b in row))
-    if cands:
-        num = re.sub(r"\s", "", cands[-1])  # lowest on the card
+        cands += re.findall(pat, " ".join(b["text"] for b in row))
+    if cands:  # the number is printed several times on a letter; the most common read wins (ties: a valid one)
+        counts = collections.Counter(re.sub(r"\s", "", c) for c in cands)
+        num = max(counts, key=lambda n: (counts[n], verhoeff_valid(n)))
     if num is None:
         flags.append("missing_id")
     else:

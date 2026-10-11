@@ -16,6 +16,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from fusion import fuse, load_threshold  # noqa: E402
 from infer import load_model, predict  # noqa: E402
+from localize import anomaly_map, field_anomalies, field_verdict, suspicious_fields  # noqa: E402
 from ocr_check import HARD_FLAGS, get_reader, ocr_check  # noqa: E402
 
 EXPLAIN = {
@@ -64,7 +65,9 @@ def run_pipeline(img_bytes: bytes) -> dict:
         return {"error": "That file could not be decoded as an image."}
     model, _ = load_resources()
     pred = predict(img, model)
-    return {"model_prob": pred["prob"], "mask_prob": pred["mask_prob"].astype(np.float16), "ocr": ocr_check(img)}
+    fields = field_anomalies(img)
+    return {"model_prob": pred["prob"], "mask_prob": pred["mask_prob"].astype(np.float16), "ocr": ocr_check(img),
+            "fields": fields, "field_map": anomaly_map(img.shape, fields).astype(np.float16)}
 
 
 def heatmap_overlay(img_bgr: np.ndarray, mask_prob: np.ndarray) -> np.ndarray:
@@ -97,6 +100,10 @@ with st.sidebar:
     manual_thr = st.slider("Manual final-score threshold", 0.0, 1.0, 0.5, 0.01, disabled=use_tuned,
                            help="A document is TAMPERED when its final score is at or above this value. "
                                 "OCR hard failures always give TAMPERED.")
+    use_unet = st.toggle("Use the synthetic-trained U-Net", value=False,
+                         help="The U-Net was trained only on the generated synthetic documents. On real scans and "
+                              "screenshots it reports high tamper probability for genuine documents too, so it is off "
+                              "by default. Turn it on for the 'Random test sample' images.")
     st.divider()
     st.subheader("Try a sample")
     if st.button("Random test sample", icon=":material/shuffle:", width="stretch"):
@@ -137,26 +144,35 @@ if "error" in res:
 
 img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
 ocr, prob = res["ocr"], res["model_prob"]
-verdict = fuse(prob, ocr, cfg if use_tuned else manual_thr)
-threshold = (cfg["per_doc_type"].get(ocr["doc_type"], cfg["threshold"]) if use_tuned else manual_thr)
-tampered = verdict["verdict"] == "TAMPERED"
+suspicious = suspicious_fields(res["fields"])
+if use_unet:
+    verdict = fuse(prob, ocr, cfg if use_tuned else manual_thr)
+    threshold = (cfg["per_doc_type"].get(ocr["doc_type"], cfg["threshold"]) if use_tuned else manual_thr)
+    tampered = verdict["verdict"] == "TAMPERED"
+else:  # hard OCR rules, or many text fields that look re-drawn (see localize.py), give TAMPERED
+    verdict = {"verdict": "TAMPERED" if ocr["hard_fail"] else field_verdict(len(suspicious)),
+               "final_score": float(ocr["ocr_score"]), "reasons": list(ocr["flags"])}
+    threshold, tampered = float("nan"), verdict["verdict"] == "TAMPERED"
 
 # verdict + scores
 with st.container(border=True):
     top = st.container(horizontal=True, vertical_alignment="center")
     with top:
-        if tampered:
+        if verdict["verdict"] == "REVIEW":
+            st.badge("REVIEW: suspicious fields", icon=":material/search:", color="orange")
+        elif tampered:
             st.badge("TAMPERED", icon=":material/gpp_bad:", color="red")
         else:
             st.badge("GENUINE", icon=":material/verified:", color="green")
         st.markdown(f"Detected document type: **{ocr['doc_type']}**")
         if truth:
             st.markdown(f"Ground truth: **{truth}**")
-    c = st.columns(4)
-    c[0].metric("Model probability", f"{prob:.3f}")
-    c[1].metric("OCR score", f"{ocr['ocr_score']:.2f}")
-    c[2].metric("Final score", f"{verdict['final_score']:.3f}")
-    c[3].metric("Threshold", f"{threshold:.3f}")
+    c = st.columns(4 if use_unet else 2)
+    c[0].metric("OCR score", f"{ocr['ocr_score']:.2f}")
+    c[1].metric("Suspicious text fields", len(suspicious))
+    if use_unet:
+        c[2].metric("Model probability", f"{prob:.3f}")
+        c[3].metric("Final / threshold", f"{verdict['final_score']:.2f} / {threshold:.2f}")
     if ocr["hard_fail"]:
         st.caption("An OCR hard failure overrides the threshold and always gives TAMPERED.")
 
@@ -176,11 +192,16 @@ with left:
     st.subheader("Original")
     st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), alt="The uploaded document", width="stretch")
 with right:
-    st.subheader("Model heatmap")
-    st.image(heatmap_overlay(img, res["mask_prob"]), width="stretch",
-             alt="The document with the model's suspected edited regions highlighted in colour")
-    st.caption(f"Regions where the model's tamper map exceeds {HEATMAP_MIN} are highlighted. "
-               "The map is much better at photo swaps, copy-move and splices than at small text edits.")
+    st.subheader("Tamper heatmap")
+    st.image(heatmap_overlay(img, (res["mask_prob"] if use_unet else res["field_map"])), width="stretch",
+             alt="The document with the suspected edited regions highlighted in colour")
+    st.caption("Text fields whose ink and background look different from the text around them (re-drawn text is "
+               "usually crisper than the surrounding scan). Redder = stronger. Each field is compared only with its "
+               "neighbours in the same image, so it does not depend on the upload's resolution or compression."
+               if not use_unet else "Output of the synthetic-trained U-Net (reliable only on the generated documents).")
+    if not use_unet and suspicious:
+        st.dataframe(pd.DataFrame([{"text": f["text"], "score": round(f["score"], 1), "cue": f["reason"]}
+                                   for f in suspicious[:12]]), hide_index=True, width="stretch")
 
 with st.expander("Extracted text"):
     st.caption("The first 8 digits of any Aadhaar number are hidden.")
