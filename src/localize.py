@@ -55,6 +55,33 @@ def _box_features(gray: np.ndarray, bgr: np.ndarray, b: dict) -> dict | None:
     return f
 
 
+def _word_segments(gray: np.ndarray, b: dict) -> list[dict]:
+    """Split an OCR box into word-level pieces at wide ink-free gaps. OCR often returns one box for 'label: value', and
+    an edited value next to an untouched label would be averaged away at box level."""
+    x0, x1, y0, y1 = int(b["x0"]), int(b["x1"]), int(b["y0"]), int(b["y1"])
+    c = gray[max(0, y0):y1, max(0, x0):x1]
+    if c.shape[0] < 8 or c.shape[1] < 40:
+        return []
+    lo, hi = np.percentile(c, 3), np.percentile(c, 75)
+    if hi - lo < 40:
+        return []
+    cols = (c < (lo + hi) / 2).sum(axis=0) > 0
+    gap, segs, start, run = max(4, int(0.25 * b["h"])), [], None, 0
+    for i, on in enumerate(list(cols) + [False] * (gap + 1)):
+        if on:
+            start, run = (i if start is None else start), 0
+        elif start is not None:
+            run += 1
+            if run >= gap:
+                segs.append((start, i - run + 1))
+                start, run = None, 0
+    out = []
+    for a, e in segs:
+        if e - a >= 1.5 * b["h"]:  # shorter pieces carry too little text to measure
+            out.append({**b, "x0": max(0, x0) + a, "x1": max(0, x0) + e})
+    return out if len(out) > 1 else []
+
+
 def _robust_z(v: float, peers: np.ndarray, floor: float) -> float:
     med = float(np.median(peers))
     mad = max(1.4826 * float(np.median(np.abs(peers - med))), floor)
@@ -71,13 +98,21 @@ def field_anomalies(img_bgr: np.ndarray, boxes: list[dict] | None = None) -> lis
         if f and b["h"] >= 6 and (b["x1"] - b["x0"]) * b["h"] >= MIN_BOX_PX:
             items.append({"text": b["text"], "bbox": (int(b["x0"]), int(b["y0"]), int(b["x1"]), int(b["y1"])),
                           "h": b["h"], "conf": b["conf"], "latin": _is_latin(b["text"]), "f": f})
-    for it in items:
+    segs = []
+    for it, b in zip(list(items), [b for b in boxes if _box_features(gray, img_bgr, b) and b["h"] >= 6 and (b["x1"] - b["x0"]) * b["h"] >= MIN_BOX_PX]):
+        for sb in _word_segments(gray, b):
+            f = _box_features(gray, img_bgr, sb)
+            if f:
+                segs.append({"text": b["text"], "bbox": (int(sb["x0"]), int(sb["y0"]), int(sb["x1"]), int(sb["y1"])),
+                             "h": b["h"], "conf": b["conf"], "latin": it["latin"], "f": f, "parent": it})
+    for it in items + segs:
         cx, cy = (it["bbox"][0] + it["bbox"][2]) / 2, (it["bbox"][1] + it["bbox"][3]) / 2
-        near = sorted((o for o in items if o is not it and o["latin"] == it["latin"] and 0.7 <= o["h"] / it["h"] <= 1.4),
+        base = it.get("parent", it)
+        near = sorted((o for o in items if o is not base and o["latin"] == it["latin"] and 0.7 <= o["h"] / it["h"] <= 1.4),
                       key=lambda o: ((o["bbox"][0] + o["bbox"][2]) / 2 - cx) ** 2 + ((o["bbox"][1] + o["bbox"][3]) / 2 - cy) ** 2)
         peers = near[:K_NEAR]  # the text around it was (mostly) left alone and shares its scan / compression history
         if len(peers) < MIN_PEERS:
-            peers = [o for o in items if o is not it]
+            peers = [o for o in items if o is not base]
         best = (0.0, "")
         if len(peers) >= MIN_PEERS:
             for name, floor, sign in FEATURES:
@@ -90,7 +125,9 @@ def field_anomalies(img_bgr: np.ndarray, boxes: list[dict] | None = None) -> lis
                 if abs(sz) > best[0]:
                     best, it["signed"] = (abs(sz), name), sz
         it["score"], it["reason"] = best
-    return items
+    flagged_parents = {id(sg["parent"]) for sg in segs if sg["score"] >= Z_FLAG}
+    # a flagged word segment replaces its whole-box item, so the highlight lands on the edited words only
+    return [i for i in items if id(i) not in flagged_parents] + [sg for sg in segs if sg["score"] >= Z_FLAG]
 
 
 def anomaly_map(shape: tuple, items: list[dict], z_full: float = 8.0) -> np.ndarray:

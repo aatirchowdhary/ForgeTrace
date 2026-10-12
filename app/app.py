@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from fusion import fuse, load_threshold  # noqa: E402
 from infer import load_model, predict  # noqa: E402
+from pdf_input import load_image  # noqa: E402
+from validate import check_document, check_image  # noqa: E402
 from localize import anomaly_map, field_anomalies, field_verdict, suspicious_fields  # noqa: E402
 from ocr_check import HARD_FLAGS, get_reader, ocr_check  # noqa: E402
 
@@ -62,12 +64,18 @@ def test_samples() -> pd.DataFrame:
 @st.cache_data(max_entries=16, show_spinner=False)
 def run_pipeline(img_bytes: bytes) -> dict:
     """Heavy part (model + OCR). Works on in-memory bytes only; nothing is written to disk."""
-    img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+    img, err = load_image(img_bytes)
     if img is None:
-        return {"error": "That file could not be decoded as an image."}
+        return {"error": err}
+    reason = check_image(img)
+    if reason:
+        return {"rejected": reason}
+    ocr = ocr_check(img)
+    reason = check_document(ocr)
+    if reason:
+        return {"rejected": reason}
     model, _ = load_resources()
     pred = predict(img, model)
-    ocr = ocr_check(img)
     fields = field_anomalies(img) + [  # fields a failed rule points at (e.g. an impossible date) are highlighted too
         {"text": r["text"], "bbox": r["bbox"], "score": 99.0, "conf": r["conf"], "reason": r["flag"].replace("_", " ")}
         for r in ocr["rule_boxes"]]
@@ -129,11 +137,19 @@ st.html("""
   <h1>Forge<span style="-webkit-text-fill-color:#FF6A1A">trace</span></h1>
   <div class="vs">Authentic vs forged</div>
   <p>Upload an Aadhaar card, PAN card or marksheet. Every text field is compared with the text around it and the
-  printed numbers are checked against their own rules. Trained on synthetic layouts; not for production use.</p>
+  printed numbers are checked against their own rules.</p>
 </div>
 """)
 
-uploaded = st.file_uploader("Upload a document image", type=["jpg", "jpeg", "png"])
+source = st.segmented_control("Image source", ["Upload", "Camera"], default="Upload", label_visibility="collapsed",
+                              selection_mode="single", key="source") or "Upload"
+if source == "Camera":
+    uploaded = st.camera_input("Take a photo of the document", resolution="1080p")
+    st.caption("Lay the document flat in good light, fill the frame and hold steady. Tap the camera-switch icon "
+               "to use the rear camera.")
+else:
+    uploaded = st.file_uploader("Upload a document image", type=["jpg", "jpeg", "png", "pdf"])
+    st.caption("JPG, PNG or a single-page PDF.")
 sample = st.session_state.get("sample")
 
 if uploaded is not None:
@@ -142,7 +158,7 @@ elif sample is not None:
     img_bytes = (ROOT / sample["path"]).read_bytes()
     truth = ("tampered (" + sample["tamper_type"].replace("_", " ") + ")") if sample["label"] == 1 else "genuine"
 else:
-    st.info("Upload a JPG or PNG of an Aadhaar card, PAN card or marksheet, or use the sidebar to pick a test sample.",
+    st.info("Upload a JPG, PNG or single-page PDF, or take a photo, of an Aadhaar card, PAN card or marksheet, or use the sidebar to pick a test sample.",
             icon=":material/upload_file:")
     st.stop()
 
@@ -156,8 +172,12 @@ with st.spinner("Analysing the document..."):
 if "error" in res:
     st.error(res["error"])
     st.stop()
+if "rejected" in res:
+    st.error(f"**Image rejected.** {res['rejected']}", icon=":material/block:")
+    st.caption("Accepted: a clear photo or scan of an Aadhaar card or letter, a PAN card, or a school marksheet.")
+    st.stop()
 
-img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+img, _ = load_image(img_bytes)  # run_pipeline already succeeded, so this cannot fail
 ocr, prob = res["ocr"], res["model_prob"]
 suspicious = suspicious_fields(res["fields"])
 if use_unet:
@@ -183,8 +203,14 @@ with st.container(border=True):
         if truth:
             st.markdown(f"Ground truth: **{truth}**")
     c = st.columns(4 if use_unet else 2)
-    c[0].metric("OCR score", f"{ocr['ocr_score']:.2f}")
-    c[1].metric("Suspicious text fields", len(suspicious))
+    c[0].metric("OCR score", f"{ocr['ocr_score']:.2f}",
+                help="Rule-check score from the text read by OCR. 1.00 if any hard rule failed (impossible date, "
+                     "Aadhaar checksum, PAN format, marksheet totals). Otherwise the number of soft warnings divided by 3 "
+                     "(0.33 = one warning). It adds context only: the TAMPERED verdict comes from hard rule failures or "
+                     "suspicious text fields, not from this score.")
+    c[1].metric("Suspicious text fields", len(suspicious),
+                help="Text fields whose edges are crisper than the text around them (a sign of re-typed text), plus any "
+                     "field a failed rule points at. One or more means TAMPERED.")
     if use_unet:
         c[2].metric("Model probability", f"{prob:.3f}")
         c[3].metric("Final / threshold", f"{verdict['final_score']:.2f} / {threshold:.2f}")

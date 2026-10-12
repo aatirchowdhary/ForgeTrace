@@ -12,3 +12,4 @@ tqdm
 matplotlib
 pandas
 qrcode
+pymupdf

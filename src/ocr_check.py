@@ -68,15 +68,19 @@ def _rows(boxes: list[dict]) -> list[list[dict]]:
 
 
 # ---------------------------------------------------------------- doc type
-def detect_doc_type(text_lines: list[str]) -> str:
+def _doc_scores(text_lines: list[str]) -> dict[str, int]:
     t = " ".join(_norm(x) for x in text_lines).lower()
     compact = re.sub(r"\s+", "", t.upper())
-    score = {
+    return {
         "aadhaar": sum(k in t for k in ("government of india", "aadhaar", "aadhar", "unique identification"))
         + bool(re.search(r"(?<!\d)\d{4}\s?\d{4}\s?\d{4}(?!\d)", t)),
         "pan": sum(k in t for k in ("income tax", "permanent account")) + bool(re.search(r"[A-Z]{5}\d{4}[A-Z]", compact)),
         "marksheet": sum(k in t for k in ("marks", "roll", "total", "result")),
     }
+
+
+def detect_doc_type(text_lines: list[str]) -> str:
+    score = _doc_scores(text_lines)
     best = max(score, key=score.get)
     if score[best] == 0 or (best == "marksheet" and score[best] < 2):
         return "aadhaar" if score["aadhaar"] and score["aadhaar"] >= score["pan"] else ("pan" if score["pan"] else "unknown")
@@ -312,4 +316,5 @@ def ocr_check(img_bgr: np.ndarray) -> dict:
     hard = bool(HARD_FLAGS & set(flags))
     score = 1.0 if hard else min(1.0, len(flags) / 3)
     return {"doc_type": doc_type, "flags": flags, "hard_fail": hard, "ocr_score": score, "text": lines,
+            "evidence": _doc_scores(lines).get(doc_type, 0), "n_text": sum(b["conf"] > 0.3 for b in boxes),
             "rule_boxes": _rule_boxes(boxes, flags, scale)}
