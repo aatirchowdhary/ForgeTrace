@@ -17,7 +17,7 @@ PAN_RE = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 PAN_TYPES = "PCHFATBLJG"
 _TO_LETTER = str.maketrans("01245678", "OIZASGTB")  # digit -> look-alike letter (PAN letter positions)
 _TO_DIGIT = str.maketrans("OQDILZASGTB", "00011245678")  # letter -> look-alike digit (PAN digit positions)
-HARD_FLAGS = {"aadhaar_checksum_fail", "invalid_pan_format", "pan_surname_mismatch", "total_mismatch",
+HARD_FLAGS = {"impossible_dob", "aadhaar_checksum_fail", "invalid_pan_format", "pan_surname_mismatch", "total_mismatch",
               "percentage_mismatch", "result_mismatch"}
 _reader = None
 
@@ -84,6 +84,20 @@ def detect_doc_type(text_lines: list[str]) -> str:
 
 
 # ---------------------------------------------------------------- helpers
+_DATE_RE = re.compile(r"(?<!\d)(\d{2})/(\d{2})/(\d{4})(?!\d)")
+
+
+def _impossible_dates(text: str) -> list[str]:
+    """Clearly formatted DD/MM/YYYY strings that are not real calendar dates (e.g. 29/02/2003: 2003 is no leap year)."""
+    out = []
+    for d, m, y in _DATE_RE.findall(text):
+        try:
+            datetime.date(int(y), int(m), int(d))
+        except ValueError:
+            out.append(f"{d}/{m}/{y}")
+    return out
+
+
 def _valid_dob(text: str) -> bool:
     for d, m, y in re.findall(r"(?<!\d)(\d{2})/(\d{2})/(\d{4})(?!\d)", text):
         try:
@@ -147,6 +161,8 @@ def _check_aadhaar(boxes, text, img_bgr, flags):
             flags.append("aadhaar_checksum_fail")
     if not _valid_dob(text):
         flags.append("invalid_dob")
+    if _impossible_dates(text):
+        flags.append("impossible_dob")
     if not re.search(r"\b(male|female|transgender)\b", text, re.I):
         flags.append("invalid_gender")
     if not _has_qr(img_bgr):
@@ -190,6 +206,8 @@ def _check_pan(boxes, text, flags):
                 flags.append("pan_surname_mismatch")
     if not _valid_dob(text):
         flags.append("invalid_dob")
+    if _impossible_dates(text):
+        flags.append("impossible_dob")
     lines = [b["text"].upper() for b in boxes]
     if not ("INCOME TAX" in " ".join(lines) or any(
             difflib.SequenceMatcher(None, l, "INCOME TAX DEPARTMENT").ratio() > 0.8 for l in lines)):
@@ -263,17 +281,35 @@ def _evaluate(img_bgr: np.ndarray) -> tuple[str, list[str], list[str], list[dict
     return doc_type, flags, lines, boxes
 
 
+def _rule_boxes(boxes: list[dict], flags: list[str], scale: float) -> list[dict]:
+    """Text boxes (original-image coordinates) that a raised rule points at, so the UI can highlight them."""
+    out = []
+    for b in boxes:
+        hit = None
+        if "impossible_dob" in flags and _impossible_dates(b["text"]):
+            hit = "impossible_dob"
+        elif "aadhaar_checksum_fail" in flags and any(
+                not verhoeff_valid(re.sub(r"\s", "", n)) for n in re.findall(r"(?<!\d)(?<!\d{4}\s)\d{4}\s?\d{4}\s?\d{4}(?!\s?\d)", b["text"])):
+            hit = "aadhaar_checksum_fail"
+        if hit:
+            out.append({"text": b["text"], "bbox": tuple(int(v / scale) for v in (b["x0"], b["y0"], b["x1"], b["y1"])),
+                        "conf": b["conf"], "flag": hit})
+    return out
+
+
 def ocr_check(img_bgr: np.ndarray) -> dict:
     """OCR rule checks. A hard-fail rule only stands if a second read (2x upscale) reproduces it, because a
     genuine inconsistency persists across reads while an OCR misread (e.g. '97' -> '997') usually does not."""
-    doc_type, flags, lines, _ = _evaluate(img_bgr)
+    doc_type, flags, lines, boxes = _evaluate(img_bgr)
+    scale = 1.0
     if HARD_FLAGS & set(flags):
         big = cv2.resize(img_bgr, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        _, flags2, lines2, _ = _evaluate(big)
+        _, flags2, lines2, boxes2 = _evaluate(big)
         if HARD_FLAGS & set(flags) & set(flags2):
             flags = [f for f in flags if f not in HARD_FLAGS or f in flags2]
         else:
-            flags, lines = flags2, lines2
+            flags, lines, boxes, scale = flags2, lines2, boxes2, 2.0
     hard = bool(HARD_FLAGS & set(flags))
     score = 1.0 if hard else min(1.0, len(flags) / 3)
-    return {"doc_type": doc_type, "flags": flags, "hard_fail": hard, "ocr_score": score, "text": lines}
+    return {"doc_type": doc_type, "flags": flags, "hard_fail": hard, "ocr_score": score, "text": lines,
+            "rule_boxes": _rule_boxes(boxes, flags, scale)}

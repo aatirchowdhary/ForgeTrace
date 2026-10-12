@@ -15,12 +15,16 @@ from ocr_check import _read
 
 Z_FLAG = 4.0       # a box is reported as suspicious at or above this robust z-score
 MIN_PEERS = 5      # fewer peers than this -> compare against every box in the image
-K_NEAR = 10        # peers = this many nearest boxes of the same script and similar size
+INK_NEUTRAL = 30   # max spread between the mean ink R, G, B values for text to count as black / grey
+K_NEAR = 20        # peers = this many nearest boxes of the same script and similar size
 MIN_BOX_PX = 60    # ignore boxes smaller than this (too little signal)
-# Verdict from the number of flagged fields (confident OCR reads only). Calibrated on a single genuine/forged pair
-# (3 vs 12 flagged fields), so these are placeholders to re-tune once more real examples exist.
-MIN_CONF, REVIEW_AT, TAMPERED_AT = 0.3, 4, 6
-FEATURES = (("ink_dark", 4.0), ("sharp", 0.12), ("flat", 0.06))  # (feature, MAD floor)
+# Verdict from the number of flagged fields (confident OCR reads only). Calibrated on three genuine/forged pairs
+# (Aadhaar letter, SSC and HSC marksheets; every forgery was a re-typed name): genuine documents flag 0 fields, forgeries
+# 1-3. Placeholders to re-tune on more real examples.
+MIN_CONF, REVIEW_AT, TAMPERED_AT = 0.3, 1, 1  # REVIEW_AT == TAMPERED_AT: no "review" band until more data shows one is needed
+# (feature, MAD floor, direction of "re-drawn"): re-typed text is crisper / darker / cleaner than the scan around it, so
+# only deviations in that direction count (blurrier-than-neighbours is normal for titles, stamps and stylised fonts)
+FEATURES = (("edge", 0.03, +1), ("sharp", 0.12, -1))
 
 
 def _is_latin(text: str) -> bool:
@@ -28,20 +32,27 @@ def _is_latin(text: str) -> bool:
     return bool(letters) and sum(c.isascii() for c in letters) / len(letters) > 0.8
 
 
-def _box_features(gray: np.ndarray, sat: np.ndarray, b: dict) -> dict | None:
-    pad = 3
+def _box_features(gray: np.ndarray, bgr: np.ndarray, b: dict) -> dict | None:
+    """Background-independent edge statistics, plus ink darkness when the box sits on plain white paper."""
+    pad = 4
     sl = (slice(max(0, int(b["y0"]) - pad), int(b["y1"]) + pad), slice(max(0, int(b["x0"]) - pad), int(b["x1"]) + pad))
-    c, sc = gray[sl], sat[sl]
-    if c.shape[0] < 8 or c.shape[1] < 20:
+    c, col = gray[sl], bgr[sl].astype(np.float32)
+    if c.shape[0] < 10 or c.shape[1] < 30:
         return None
-    ink, bg = c < 128, c > 200
-    if ink.sum() < 10 or bg.sum() < 30 or bg.mean() < 0.5 or np.median(c[bg]) < 235:
-        return None  # only plain dark-on-white text is comparable (coloured banners, logos and photos are skipped)
-    if (sc[ink] > 80).mean() > 0.2:
-        return None  # coloured (e.g. red) headings have a different ink model than black body text
-    return {"ink_dark": float(np.percentile(c[ink], 10)),          # how black the ink core is (0 = pure black)
-            "sharp": float(np.log1p(((c >= 60) & (c <= 200)).mean() / max(ink.mean(), 1e-3))),  # soft edge pixels per ink pixel
-            "flat": float((c >= 253).mean())}                       # share of pure-white pixels (clean re-drawn patch)
+    lo, hi = np.percentile(c, 3), np.percentile(c, 75)  # ink level, paper level
+    if hi - lo < 40:
+        return None
+    t = (c - lo) / (hi - lo)                              # 0 = ink, 1 = paper, whatever the background colour
+    ink, edge_px = t < 0.25, (t >= 0.25) & (t <= 0.75)
+    if ink.sum() < 20 or edge_px.sum() < 10 or np.ptp(col[ink].mean(axis=0)) > INK_NEUTRAL:
+        return None  # too little text, or coloured ink (red / blue headings, stylised titles): only neutral black-grey body text is comparable
+    gm = np.hypot(cv2.Sobel(c, cv2.CV_32F, 1, 0), cv2.Sobel(c, cv2.CV_32F, 0, 1))
+    f = {"edge": float(gm[edge_px].mean() / (hi - lo)),                         # edge gradient / contrast: crisp = high
+         "sharp": float(np.log1p(edge_px.mean() / ink.mean()))}                  # soft edge pixels per ink pixel: crisp = low
+    if np.median(c[c > 200]) >= 235 if (c > 200).sum() > 30 else False:        # plain white paper only
+        f["ink_dark"] = float(np.percentile(c[c < 128], 10)) if (c < 128).sum() >= 10 else 255.0
+        f["flat"] = float((c >= 253).mean())                                    # pure-white share: clean re-drawn patch
+    return f
 
 
 def _robust_z(v: float, peers: np.ndarray, floor: float) -> float:
@@ -54,10 +65,9 @@ def field_anomalies(img_bgr: np.ndarray, boxes: list[dict] | None = None) -> lis
     """One dict per usable OCR box: its text, bbox (x0, y0, x1, y1), anomaly score and the dominating feature."""
     boxes = _read(img_bgr) if boxes is None else boxes
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    sat = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)[..., 1]
     items = []
     for b in boxes:
-        f = _box_features(gray, sat, b)
+        f = _box_features(gray, img_bgr, b)
         if f and b["h"] >= 6 and (b["x1"] - b["x0"]) * b["h"] >= MIN_BOX_PX:
             items.append({"text": b["text"], "bbox": (int(b["x0"]), int(b["y0"]), int(b["x1"]), int(b["y1"])),
                           "h": b["h"], "conf": b["conf"], "latin": _is_latin(b["text"]), "f": f})
@@ -70,8 +80,13 @@ def field_anomalies(img_bgr: np.ndarray, boxes: list[dict] | None = None) -> lis
             peers = [o for o in items if o is not it]
         best = (0.0, "")
         if len(peers) >= MIN_PEERS:
-            for name, floor in FEATURES:
-                sz = _robust_z(it["f"][name], np.array([p["f"][name] for p in peers]), floor)
+            for name, floor, sign in FEATURES:
+                pv = np.array([p["f"][name] for p in peers if name in p["f"]])
+                if name not in it["f"] or len(pv) < MIN_PEERS:
+                    continue
+                sz = sign * _robust_z(it["f"][name], pv, floor)
+                if sz <= 0:
+                    continue
                 if abs(sz) > best[0]:
                     best, it["signed"] = (abs(sz), name), sz
         it["score"], it["reason"] = best

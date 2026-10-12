@@ -23,6 +23,7 @@ EXPLAIN = {
     "missing_id": "No 12-digit Aadhaar number could be read from the card.",
     "invalid_aadhaar_prefix": "The Aadhaar number starts with 0 or 1, which a real Aadhaar number never does.",
     "aadhaar_checksum_fail": "The Aadhaar number fails the Verhoeff checksum, so it cannot be a valid number.",
+    "impossible_dob": "A printed date is not a real calendar date (for example 29/02 in a year that is not a leap year).",
     "invalid_dob": "The date of birth is missing, is not a real DD/MM/YYYY date, or gives an age outside 0-120.",
     "invalid_gender": "The gender is not one of Male, Female or Transgender.",
     "missing_qr": "No QR code was found on the card.",
@@ -66,8 +67,11 @@ def run_pipeline(img_bytes: bytes) -> dict:
         return {"error": "That file could not be decoded as an image."}
     model, _ = load_resources()
     pred = predict(img, model)
-    fields = field_anomalies(img)
-    return {"model_prob": pred["prob"], "mask_prob": pred["mask_prob"].astype(np.float16), "ocr": ocr_check(img),
+    ocr = ocr_check(img)
+    fields = field_anomalies(img) + [  # fields a failed rule points at (e.g. an impossible date) are highlighted too
+        {"text": r["text"], "bbox": r["bbox"], "score": 99.0, "conf": r["conf"], "reason": r["flag"].replace("_", " ")}
+        for r in ocr["rule_boxes"]]
+    return {"model_prob": pred["prob"], "mask_prob": pred["mask_prob"].astype(np.float16), "ocr": ocr,
             "fields": fields, "field_map": anomaly_map(img.shape, fields).astype(np.float16)}
 
 
