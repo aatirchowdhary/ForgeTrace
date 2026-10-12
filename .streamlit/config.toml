@@ -1,0 +1,33 @@
+[theme]
+base = "dark"
+primaryColor = "#FF6A1A"
+backgroundColor = "#0E0A08"
+secondaryBackgroundColor = "#1A120E"
+textColor = "#F1E7DF"
+linkColor = "#FF8A4C"
+borderColor = "#3A2418"
+codeBackgroundColor = "#140E0B"
+codeTextColor = "#FFB27A"
+baseRadius = "6px"
+buttonRadius = "2px"
+showWidgetBorder = true
+showSidebarBorder = false
+linkUnderline = false
+
+font = "'Space Grotesk':https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap"
+headingFont = "'Archivo Black':https://fonts.googleapis.com/css2?family=Archivo+Black&display=swap"
+codeFont = "'JetBrains Mono':https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
+
+# status colours: orange family, except green which marks a GENUINE verdict
+redColor = "#FF6A1A"
+orangeColor = "#FF8A4C"
+yellowColor = "#FFB27A"
+greenColor = "#34D27B"
+blueColor = "#FFB27A"
+violetColor = "#FF8A4C"
+grayColor = "#8C7A6E"
+chartCategoricalColors = ["#FF6A1A", "#FFB27A", "#E8D9CC", "#C2410C", "#FFD9B8", "#8C7A6E", "#7A2E0B"]
+
+[theme.sidebar]
+backgroundColor = "#120C09"
+secondaryBackgroundColor = "#1A120E"

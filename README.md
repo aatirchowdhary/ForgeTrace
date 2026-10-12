@@ -1,4 +1,4 @@
-# doc-forgery
+# FORGETRACE (doc-forgery)
 
 Detect and localise tampering in **Indian identity and academic documents** (Aadhaar card, PAN card, school marksheet).
 Two complementary signals are fused into one verdict:

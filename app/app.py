@@ -40,9 +40,10 @@ EXPLAIN = {
     "low_ocr_confidence": "The text is hard to read (low OCR confidence), so the rule checks may be unreliable.",
     "model_score_high": "The image model sees pixel-level patterns typical of edited regions.",
 }
-HEATMAP_MIN, HEATMAP_ALPHA = 0.3, 0.45
+HEATMAP_MIN, HEATMAP_ALPHA = 0.3, 0.6
 
-st.set_page_config(page_title="Document forgery check", page_icon=":material/fact_check:", layout="wide")
+st.set_page_config(page_title="FORGETRACE", page_icon=":material/fact_check:", layout="wide")
+st.html(f"<style>{(ROOT / 'app' / 'style.css').read_text(encoding='utf-8')}</style>")
 
 
 # ---------------------------------------------------------------- cached resources and helpers
@@ -70,9 +71,13 @@ def run_pipeline(img_bytes: bytes) -> dict:
             "fields": fields, "field_map": anomaly_map(img.shape, fields).astype(np.float16)}
 
 
+_t = np.linspace(0, 1, 256, dtype=np.float32)[:, None]  # orange -> pale amber lookup table (BGR), no blue / purple
+ORANGE_LUT = (np.array([10, 70, 255], np.float32) * (1 - _t) + np.array([190, 235, 255], np.float32) * _t).astype(np.uint8)[:, None, :]
+
+
 def heatmap_overlay(img_bgr: np.ndarray, mask_prob: np.ndarray) -> np.ndarray:
-    """COLORMAP_JET heatmap blended at alpha 0.45, only where mask_prob > 0.3. Returns RGB."""
-    heat = cv2.applyColorMap((np.clip(mask_prob.astype(np.float32), 0, 1) * 255).astype(np.uint8), cv2.COLORMAP_JET)
+    """Orange heatmap blended at alpha 0.45, only where mask_prob > 0.3. Returns RGB."""
+    heat = cv2.applyColorMap((np.clip(mask_prob.astype(np.float32), 0, 1) * 255).astype(np.uint8), ORANGE_LUT)
     on = (mask_prob > HEATMAP_MIN)[..., None]
     blended = cv2.addWeighted(img_bgr, 1 - HEATMAP_ALPHA, heat, HEATMAP_ALPHA, 0)
     return cv2.cvtColor(np.where(on, blended, img_bgr).astype(np.uint8), cv2.COLOR_BGR2RGB)
@@ -114,9 +119,15 @@ with st.sidebar:
     st.caption("Uploaded images are processed in memory and never saved to disk.")
 
 # ---------------------------------------------------------------- main page
-st.title("Document forgery check")
-st.caption("Research prototype for Aadhaar cards, PAN cards and school marksheets. "
-           "It is trained on synthetic, fictional layouts and is not for production use.")
+st.html("""
+<div class="hero">
+  <div class="nav"><b>FORGE<i>TRACE</i></b><span class="sep"></span><span>Document forgery check</span><span class="tag">Research prototype</span></div>
+  <h1>Forge<span style="-webkit-text-fill-color:#FF6A1A">trace</span></h1>
+  <div class="vs">Authentic vs forged</div>
+  <p>Upload an Aadhaar card, PAN card or marksheet. Every text field is compared with the text around it and the
+  printed numbers are checked against their own rules. Trained on synthetic layouts; not for production use.</p>
+</div>
+""")
 
 uploaded = st.file_uploader("Upload a document image", type=["jpg", "jpeg", "png"])
 sample = st.session_state.get("sample")
