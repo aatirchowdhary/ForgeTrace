@@ -69,3 +69,28 @@ h3 { font-size:1.05rem !important; color:var(--cream); }
 
 /* ---------- badge (verdict): kept in the orange family ---------- */
 [data-testid="stBadge"], .stBadge { font-family:var(--mono) !important; letter-spacing:.2em; text-transform:uppercase; font-weight:700; }
+
+/* ---------- fade-in on load: every block rises and fades in, staggered top to bottom ---------- */
+@keyframes ft-fade { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+.block-container [data-testid="stElementContainer"],
+.block-container [data-testid="stVerticalBlockBorderWrapper"],
+.block-container [data-testid="stHorizontalBlock"],
+.block-container [data-testid="stAlert"],
+[data-testid="stSidebar"] [data-testid="stElementContainer"] {
+  animation: ft-fade .7s cubic-bezier(.2,.7,.2,1) both;
+}
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(1) { animation-delay:.00s; }
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(2) { animation-delay:.08s; }
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(3) { animation-delay:.16s; }
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(4) { animation-delay:.24s; }
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(5) { animation-delay:.32s; }
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(6) { animation-delay:.40s; }
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(7) { animation-delay:.48s; }
+.block-container > div > [data-testid="stVerticalBlock"] > *:nth-child(n+8) { animation-delay:.56s; }
+[data-testid="stSidebar"] [data-testid="stElementContainer"] { animation-delay:.15s; }
+@media (prefers-reduced-motion: reduce) {
+  .block-container *, [data-testid="stSidebar"] * { animation:none !important; }
+}
+
+/* no sidebar: hide it and its toggle */
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="stExpandSidebarButton"] { display:none !important; }

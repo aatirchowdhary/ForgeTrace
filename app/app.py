@@ -1,7 +1,6 @@
 """Streamlit demo: upload a document image -> image model + OCR rule checks -> fused verdict."""
 from __future__ import annotations
 
-import random
 import re
 import sys
 from pathlib import Path
@@ -45,7 +44,7 @@ EXPLAIN = {
 }
 HEATMAP_MIN, HEATMAP_ALPHA = 0.3, 0.6
 
-st.set_page_config(page_title="FORGETRACE", page_icon=":material/fact_check:", layout="wide")
+st.set_page_config(page_title="FORGETRACE", page_icon=":material/fact_check:", layout="wide", initial_sidebar_state="collapsed")
 st.html(f"<style>{(ROOT / 'app' / 'style.css').read_text(encoding='utf-8')}</style>")
 
 
@@ -54,11 +53,6 @@ st.html(f"<style>{(ROOT / 'app' / 'style.css').read_text(encoding='utf-8')}</sty
 def load_resources():
     get_reader()  # warm up the OCR reader so the first upload is not slow
     return load_model(), load_threshold()
-
-
-@st.cache_data(show_spinner=False)
-def test_samples() -> pd.DataFrame:
-    return pd.read_csv(ROOT / "splits" / "test.csv", keep_default_na=False)
 
 
 @st.cache_data(max_entries=16, show_spinner=False)
@@ -109,31 +103,16 @@ def flag_label(flag: str) -> str:
     return flag.replace("_", " ")
 
 
-# ---------------------------------------------------------------- sidebar
-with st.sidebar:
-    st.header("Settings")
-    use_tuned = st.toggle("Use tuned thresholds per document type", value=True,
-                          help="Thresholds tuned on the validation split (see models/threshold.json).")
-    manual_thr = st.slider("Manual final-score threshold", 0.0, 1.0, 0.5, 0.01, disabled=use_tuned,
-                           help="A document is TAMPERED when its final score is at or above this value. "
-                                "OCR hard failures always give TAMPERED.")
-    use_unet = st.toggle("Use the synthetic-trained U-Net", value=False,
-                         help="The U-Net was trained only on the generated synthetic documents. On real scans and "
-                              "screenshots it reports high tamper probability for genuine documents too, so it is off "
-                              "by default. Turn it on for the 'Random test sample' images.")
-    st.divider()
-    st.subheader("Try a sample")
-    if st.button("Random test sample", icon=":material/shuffle:", width="stretch"):
-        row = test_samples().iloc[random.randrange(len(test_samples()))]
-        st.session_state["sample"] = row.to_dict()
-    st.caption("Picks an image from the held-out test split, with its ground truth shown for comparison.")
-    st.divider()
-    st.caption("Uploaded images are processed in memory and never saved to disk.")
+# ---------------------------------------------------------------- settings (no sidebar)
+# The U-Net was trained only on the generated synthetic documents; on real scans it reports a high tamper probability for
+# genuine documents too, so it stays off. Set USE_UNET = True to bring back its heatmap and fused score.
+USE_UNET, USE_TUNED, MANUAL_THR = False, True, 0.5
+use_unet, use_tuned, manual_thr = USE_UNET, USE_TUNED, MANUAL_THR
 
 # ---------------------------------------------------------------- main page
 st.html("""
 <div class="hero">
-  <div class="nav"><b>FORGE<i>TRACE</i></b><span class="sep"></span><span>Document forgery check</span><span class="tag">Research prototype</span></div>
+  <div class="nav"><b>FORGE<i>TRACE</i></b><span class="sep"></span><span>Document forgery check</span></div>
   <h1>Forge<span style="-webkit-text-fill-color:#FF6A1A">trace</span></h1>
   <div class="vs">Authentic vs forged</div>
   <p>Upload an Aadhaar card, PAN card or marksheet. Every text field is compared with the text around it and the
@@ -150,15 +129,12 @@ if source == "Camera":
 else:
     uploaded = st.file_uploader("Upload a document image", type=["jpg", "jpeg", "png", "pdf"])
     st.caption("JPG, PNG or a single-page PDF.")
-sample = st.session_state.get("sample")
+st.caption("Uploaded images are processed in memory and never saved to disk.")
 
 if uploaded is not None:
     img_bytes, truth = uploaded.getvalue(), None
-elif sample is not None:
-    img_bytes = (ROOT / sample["path"]).read_bytes()
-    truth = ("tampered (" + sample["tamper_type"].replace("_", " ") + ")") if sample["label"] == 1 else "genuine"
 else:
-    st.info("Upload a JPG, PNG or single-page PDF, or take a photo, of an Aadhaar card, PAN card or marksheet, or use the sidebar to pick a test sample.",
+    st.info("Upload a JPG, PNG or single-page PDF, or take a photo, of an Aadhaar card, PAN card or marksheet.",
             icon=":material/upload_file:")
     st.stop()
 
@@ -241,8 +217,18 @@ with right:
                "neighbours in the same image, so it does not depend on the upload's resolution or compression."
                if not use_unet else "Output of the synthetic-trained U-Net (reliable only on the generated documents).")
     if not use_unet and suspicious:
-        st.dataframe(pd.DataFrame([{"text": f["text"], "score": round(f["score"], 1), "cue": f["reason"]}
-                                   for f in suspicious[:12]]), hide_index=True, width="stretch")
+        lines: dict[tuple, dict] = {}  # one row per printed line: its flagged words are merged
+        for f in suspicious:
+            row = lines.setdefault((f["text"], f["bbox"][1] // 40), {"Text": f["text"], "Flagged words": 0, "Strength": 0.0,
+                                                                     "Why": f["reason"]})
+            row["Flagged words"] += 1
+            if f["score"] > row["Strength"]:
+                row["Strength"], row["Why"] = f["score"], f["reason"]
+        table = pd.DataFrame(sorted(lines.values(), key=lambda r: -r["Strength"])[:12])
+        table["Strength"] = table["Strength"].map(lambda v: "rule failed" if v >= 99 else f"{v:.1f}")
+        st.dataframe(table, hide_index=True, width="stretch", alt="Text lines flagged as possibly re-typed")
+        st.caption("Strength: how far the text stands out from its neighbours (4.0 or more is flagged). "
+                   "Why: `edge` = letter edges much crisper than the surrounding text; other entries are failed rules.")
 
 with st.expander("Extracted text"):
     st.caption("The first 8 digits of any Aadhaar number are hidden.")
