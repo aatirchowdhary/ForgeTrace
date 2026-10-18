@@ -2,11 +2,11 @@ torch
 torchvision
 segmentation-models-pytorch
 opencv-python
-pillow
+pillow<12
 numpy
 scikit-learn
 easyocr
-streamlit
+streamlit>=1.40
 albumentations
 tqdm
 matplotlib
