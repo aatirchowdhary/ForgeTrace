@@ -1,5 +1,10 @@
 [server]
 maxUploadSize = 100
+fileWatcherType = "none"
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
 
 [theme]
 base = "dark"
