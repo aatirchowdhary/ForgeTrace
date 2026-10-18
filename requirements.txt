@@ -1,7 +1,7 @@
 torch
 torchvision
 segmentation-models-pytorch
-opencv-python
+opencv-python-headless
 pillow<12
 numpy
 scikit-learn
