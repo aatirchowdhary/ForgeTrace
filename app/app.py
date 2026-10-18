@@ -43,6 +43,9 @@ EXPLAIN = {
     "model_score_high": "The image model sees pixel-level patterns typical of edited regions.",
 }
 HEATMAP_MIN, HEATMAP_ALPHA = 0.3, 0.6
+# The U-Net was trained only on the generated synthetic documents; on real scans it reports a high tamper probability for
+# genuine documents too, so it stays off. Set USE_UNET = True to bring back its heatmap and fused score.
+USE_UNET, USE_TUNED, MANUAL_THR = False, True, 0.5
 
 st.set_page_config(page_title="FORGETRACE", page_icon=":material/fact_check:", layout="wide", initial_sidebar_state="collapsed")
 st.html(f"<style>{(ROOT / 'app' / 'style.css').read_text(encoding='utf-8')}</style>")
@@ -52,6 +55,8 @@ st.html(f"<style>{(ROOT / 'app' / 'style.css').read_text(encoding='utf-8')}</sty
 @st.cache_resource(show_spinner="Loading models (first run only)...")
 def load_resources():
     get_reader()  # warm up the OCR reader so the first upload is not slow
+    if not USE_UNET:  # skip the ~100 MB U-Net: it is unused and the free host has little RAM
+        return None, {}
     return load_model(), load_threshold()
 
 
@@ -68,8 +73,10 @@ def run_pipeline(img_bytes: bytes) -> dict:
     reason = check_document(ocr)
     if reason:
         return {"rejected": reason}
-    model, _ = load_resources()
-    pred = predict(img, model)
+    pred = {"prob": 0.0, "mask_prob": np.zeros(img.shape[:2], np.float16)}
+    if USE_UNET:
+        model, _ = load_resources()
+        pred = predict(img, model)
     fields = field_anomalies(img) + [  # fields a failed rule points at (e.g. an impossible date) are highlighted too
         {"text": r["text"], "bbox": r["bbox"], "score": 99.0, "conf": r["conf"], "reason": r["flag"].replace("_", " ")}
         for r in ocr["rule_boxes"]]
@@ -104,9 +111,6 @@ def flag_label(flag: str) -> str:
 
 
 # ---------------------------------------------------------------- settings (no sidebar)
-# The U-Net was trained only on the generated synthetic documents; on real scans it reports a high tamper probability for
-# genuine documents too, so it stays off. Set USE_UNET = True to bring back its heatmap and fused score.
-USE_UNET, USE_TUNED, MANUAL_THR = False, True, 0.5
 use_unet, use_tuned, manual_thr = USE_UNET, USE_TUNED, MANUAL_THR
 
 # ---------------------------------------------------------------- main page
@@ -139,7 +143,7 @@ else:
     st.stop()
 
 model, cfg = load_resources()
-if cfg.get("model") and cfg["model"] != getattr(model, "file", cfg["model"]):
+if model is not None and cfg.get("model") and cfg["model"] != getattr(model, "file", cfg["model"]):
     st.warning(f"The saved thresholds were tuned for `{cfg['model']}`, but `{model.file}` is loaded. "
                "Re-run `python src/fusion.py` to re-tune them.", icon=":material/warning:")
 
