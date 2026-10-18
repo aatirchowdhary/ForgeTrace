@@ -52,6 +52,14 @@ st.html(f"<style>{(ROOT / 'app' / 'style.css').read_text(encoding='utf-8')}</sty
 
 
 # ---------------------------------------------------------------- cached resources and helpers
+MAX_SIDE = 2000  # px; phone photos are 12 MP+, which exhausts the free host's RAM during OCR
+
+
+def limit_size(img: np.ndarray) -> np.ndarray:
+    scale = MAX_SIDE / max(img.shape[:2])
+    return img if scale >= 1 else cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+
 @st.cache_resource(show_spinner="Loading models (first run only)...")
 def load_resources():
     get_reader()  # warm up the OCR reader so the first upload is not slow
@@ -66,6 +74,7 @@ def run_pipeline(img_bytes: bytes) -> dict:
     img, err = load_image(img_bytes)
     if img is None:
         return {"error": err}
+    img = limit_size(img)
     reason = check_image(img)
     if reason:
         return {"rejected": reason}
@@ -157,7 +166,7 @@ if "rejected" in res:
     st.caption("Accepted: a clear photo or scan of an Aadhaar card or letter, a PAN card, or a school marksheet.")
     st.stop()
 
-img, _ = load_image(img_bytes)  # run_pipeline already succeeded, so this cannot fail
+img = limit_size(load_image(img_bytes)[0])  # run_pipeline already succeeded, so this cannot fail
 ocr, prob = res["ocr"], res["model_prob"]
 suspicious = suspicious_fields(res["fields"])
 if use_unet:
