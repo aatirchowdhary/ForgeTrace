@@ -94,3 +94,50 @@ h3 { font-size:1.05rem !important; color:var(--cream); }
 
 /* no sidebar: hide it and its toggle */
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="stExpandSidebarButton"] { display:none !important; }
+
+/* ---------- mobile / small screens ---------- */
+@media (max-width: 768px) {
+  .block-container { padding: 3.2rem .9rem 2rem !important; }
+  .stApp { background:
+    radial-gradient(500px 360px at 85% -5%, rgba(255,106,26,.20), transparent 60%),
+    linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px) 0 0/32px 32px,
+    linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px) 0 0/32px 32px,
+    #0E0A08 !important; }
+  .hero { margin-bottom:1rem; }
+  .hero .nav { flex-wrap:wrap; gap:8px 12px; padding:10px 12px; letter-spacing:.14em; font-size:.62rem; }
+  .hero .nav b { font-size:.95rem; }
+  .hero .nav .sep { display:none; }
+  .hero h1 { margin:1.2rem 0 .3rem !important; font-size:clamp(2.2rem,13vw,3.2rem) !important; overflow-wrap:anywhere; }
+  .hero .vs { letter-spacing:.2em; font-size:.68rem; gap:8px; }
+  .hero .vs::before,.hero .vs::after { width:28px; }
+  .hero p { font-size:.95rem; line-height:1.55; padding-left:12px; }
+
+  /* blur is costly on phones: use plain translucent surfaces */
+  [data-testid="stVerticalBlockBorderWrapper"], [data-testid="stExpander"], [data-testid="stFileUploader"] section,
+  [data-testid="stAlert"], [data-testid="stDataFrame"], [data-testid="stImage"] img {
+    backdrop-filter:none !important; -webkit-backdrop-filter:none !important; border-radius:12px !important;
+    box-shadow:0 4px 16px rgba(0,0,0,.4); }
+  [data-testid="stImage"] img { padding:4px; }
+
+  /* touch targets, uploader and camera */
+  .stButton > button, [data-testid="stFileUploader"] button { min-height:46px; letter-spacing:.12em; }
+  [data-testid="stFileUploader"] section { padding:1rem .75rem; }
+  [data-testid="stFileUploaderDropzoneInstructions"] { text-align:left; }
+  [data-testid="stCameraInput"] video, [data-testid="stCameraInput"] img { max-width:100%; border-radius:12px; }
+  [data-testid="stSegmentedControl"] button { min-height:44px; }
+
+  /* verdict card: metrics side by side, text wraps, nothing overflows */
+  [data-testid="stMetricValue"] { font-size:1.6rem !important; }
+  [data-testid="stMetricLabel"] p, [data-testid="stCaptionContainer"] { letter-spacing:.06em; font-size:.66rem !important; }
+  [data-testid="stHorizontalBlock"] { gap:.75rem !important; }
+  [data-testid="stAlert"] { font-size:.92rem; overflow-wrap:anywhere; }
+  h2, h3 { overflow-wrap:anywhere; }
+  [data-testid="stCode"] pre, pre { white-space:pre-wrap !important; word-break:break-word; font-size:.78rem; }
+  [data-testid="stDataFrame"] { max-width:100%; overflow-x:auto; }
+
+  /* lighter entrance animation */
+  @keyframes ft-fade { from { opacity:0; } to { opacity:1; } }
+}
+@media (max-width: 400px) {
+  .hero .nav span:not(.sep):last-child { flex-basis:100%; }
+}
